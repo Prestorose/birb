@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
 import platform
 import sys
 import gc
@@ -75,7 +76,10 @@ if os.getenv("SENTRY_URL", None):
 
     sentry_sdk.init(
         dsn=os.getenv("SENTRY_URL"),
-        integrations=[AioHttpIntegration(), LoggingIntegration(level=logging.INFO)],
+        integrations=[
+            AioHttpIntegration(),
+            LoggingIntegration(level=logging.INFO),
+        ],
         traces_sample_rate=0.2,
         profiles_sample_rate=0.05,
         enable_logs=True,
@@ -91,11 +95,14 @@ class Client(commands.AutoShardedBot):
         self.maintenance = False
         self.maintenanceReason = ""
         self.cached_commands = {}
+
         intents = self._initialize_intents()
         self._initialize_super(intents)
+
         self.client = client
         self.cogslist = self._initialize_cogslist()
         self.Tasks = set()
+
         if environment != "custom":
             self.cogslist.extend(
                 [
@@ -104,6 +111,7 @@ class Client(commands.AutoShardedBot):
                     "cogs.Tasks.CheckSubscription",
                 ]
             )
+
         if os.getenv("STAFF"):
             self.cogslist.append("cogs.Modules.Developer.admin")
 
@@ -124,36 +132,48 @@ class Client(commands.AutoShardedBot):
     def _initialize_super(self, intents):
         if environment == "custom":
             logger.info("Custom Branding Loaded")
+
             super().__init__(
                 command_prefix=commands.when_mentioned_or(self.get_prefix),
                 intents=intents,
                 shard_count=None,
                 chunk_guilds_at_startup=False,
                 allowed_mentions=discord.AllowedMentions(
-                    replied_user=False, everyone=False, roles=False
+                    replied_user=False,
+                    everyone=False,
+                    roles=False,
                 ),
                 tree_cls=Tree,
             )
+
         elif environment == "development":
             logger.info("Development Loaded")
+
             super().__init__(
                 command_prefix=commands.when_mentioned_or(PREFIX),
                 intents=intents,
                 shard_count=None,
                 chunk_guilds_at_startup=os.getenv("CACHE", True),
                 allowed_mentions=discord.AllowedMentions(
-                    replied_user=False, everyone=False, roles=False
+                    replied_user=False,
+                    everyone=False,
+                    roles=False,
                 ),
                 tree_cls=Tree,
             )
+
         else:
             logger.info("Production Loaded")
+
             super().__init__(
                 command_prefix=commands.when_mentioned_or(PREFIX),
                 intents=intents,
+                shard_count=None,
                 chunk_guilds_at_startup=os.getenv("CACHE", False),
                 allowed_mentions=discord.AllowedMentions(
-                    replied_user=False, everyone=False, roles=False
+                    replied_user=False,
+                    everyone=False,
+                    roles=False,
                 ),
                 tree_cls=Tree,
             )
@@ -174,6 +194,7 @@ class Client(commands.AutoShardedBot):
             "cogs.Modules.data",
             "cogs.Modules.integrations",
             "cogs.Modules.tickets",
+
             # Utilities
             "cogs.Modules.Utilities.extras",
             "cogs.Modules.Utilities.ping",
@@ -181,8 +202,10 @@ class Client(commands.AutoShardedBot):
             "cogs.Modules.Utilities.premium",
             "cogs.Modules.Utilities.memberships",
             "cogs.Modules.Developer.astro",
+
             # Configuration
             "cogs.Configuration.Configuration",
+
             # Events
             "cogs.Events.Dev.on_guild",
             "cogs.Events.Dev.welcome",
@@ -209,6 +232,7 @@ class Client(commands.AutoShardedBot):
             "cogs.Events.on_leave",
             "cogs.Events.on_counter_log",
             "cogs.Events.Dev.on_shard",
+
             # Tasks
             "cogs.Tasks.expiration",
             "cogs.Tasks.leave",
@@ -227,13 +251,17 @@ class Client(commands.AutoShardedBot):
     async def get_prefix(self, message: discord.Message) -> tasks.List[str] | str:
         if message.guild is None:
             return "!!"
+
         if message.author.bot:
             return None
+
         result = await prefixes.find_one({"guild_id": message.guild.id})
+
         if result:
             prefix = result.get("prefix", "!!")
         else:
             prefix = PREFIX
+
         return commands.when_mentioned_or(prefix)(self, message)
 
     async def setup_hook(self):
@@ -244,41 +272,57 @@ class Client(commands.AutoShardedBot):
 
     async def _load_views(self):
         filter = {}
+
         if environment == "custom":
             filter["guild"] = int(guildid)
+
         TicketViews = await self.db["Panels"].find(filter).to_list(length=None)
         V = await Views.find(filter).to_list(length=None)
+
         logger.info("[Views] Loading Any Views")
+
         for view in V:
             if not view:
                 continue
+
             if view.get("type") == "staff":
                 await self._load_staff_view(view)
+
         logger.info("[Views] Loading Ticket Views")
+
         for view in TicketViews:
             await self._load_ticket_view(view)
+
         del TicketViews
         del V
 
     async def _load_staff_view(self, view):
-        DbResults = await staffdb.find({"guild_id": view.get("guild")}).to_list(
-            length=None
-        )
+        DbResults = await staffdb.find(
+            {"guild_id": view.get("guild")}
+        ).to_list(length=None)
+
         if not DbResults:
             return
+
         options = []
+
         guild = self.get_guild(int(view.get("guild")))
+
         if not guild:
             return
+
         if not guild.chunked:
             try:
                 await guild.chunk()
             except (discord.HTTPException, discord.Forbidden):
                 return
+
         for staff in DbResults:
             member = guild.get_member(staff.get("staff_id"))
+
             if not member:
                 continue
+
             options.append(
                 discord.SelectOption(
                     label=member.display_name,
@@ -287,6 +331,7 @@ class Client(commands.AutoShardedBot):
                     emoji=f"{Emojis.staff}",
                 )
             )
+
             if len(options) >= 24:
                 options.append(
                     discord.SelectOption(
@@ -299,19 +344,25 @@ class Client(commands.AutoShardedBot):
                 break
 
         view = Staffview(options=options[:25])
+
         try:
-            self.add_view(view, msg_id=int(view.get("MsgID")))
+            self.add_view(
+                view,
+                msg_id=int(view.get("MsgID")),
+            )
         except:
             return
 
     async def _load_ticket_view(self, view):
         view_handler = ButtonHandler()
+
         if view.get("type") == "multi":
             buttons = []
+
             if not view.get("Panels"):
                 return
-            for panel_name in view.get("Panels"):
 
+            for panel_name in view.get("Panels"):
                 sub = await self.db["Panels"].find_one(
                     {
                         "guild": view.get("guild"),
@@ -319,11 +370,15 @@ class Client(commands.AutoShardedBot):
                         "type": "single",
                     }
                 )
+
                 if not sub:
                     continue
+
                 sub_button = sub.get("Button")
+
                 if not sub_button:
                     continue
+
                 buttons.append(
                     {
                         "label": sub_button.get("label"),
@@ -335,10 +390,13 @@ class Client(commands.AutoShardedBot):
 
             if buttons:
                 view_handler.add_buttons(buttons)
+
         else:
             single_button = view.get("Button")
+
             if not single_button:
                 return
+
             view_handler.add_buttons(
                 [
                     {
@@ -351,7 +409,11 @@ class Client(commands.AutoShardedBot):
             )
 
         msg_id = view.get("MsgID")
-        self.add_view(view_handler, message_id=int(msg_id) if msg_id else 0)
+
+        self.add_view(
+            view_handler,
+            message_id=int(msg_id) if msg_id else 0,
+        )
 
     async def _load_cogs(self):
         self.add_view(Voting())
@@ -364,20 +426,31 @@ class Client(commands.AutoShardedBot):
         self.add_view(PTicketControl())
 
         self.loop.create_task(self.load_jishaku())
+
         DoNotLoad = os.getenv("DoNotLoad", "").replace(" ", "").split(",")
-        self.cogslist = [cog for cog in self.cogslist if cog and cog not in DoNotLoad]
+
+        self.cogslist = [
+            cog for cog in self.cogslist
+            if cog and cog not in DoNotLoad
+        ]
+
         for ext in self.cogslist:
             try:
                 await self.load_extension(ext)
                 logger.info(f"[✅] Loaded cog: {ext}")
+
             except Exception as e:
-                logger.error(f"[❌] Failed to load cog {ext}: {e}")
+                logger.error(
+                    f"[❌] Failed to load cog {ext}: {e}"
+                )
                 raise
 
     async def GetVersion(self):
         V = await SupportVariables.find_one({"_id": 1})
+
         if not V:
             return "N/A"
+
         return V.get("version")
 
     async def CacheCommands(self):
@@ -386,6 +459,7 @@ class Client(commands.AutoShardedBot):
         def recursive_cache(command, parent=""):
             full_name = f"{parent} {command.name}".strip()
             self.cached_commands.append(full_name)
+
             if isinstance(command, discord.app_commands.Group):
                 for subcommand in command.commands:
                     recursive_cache(subcommand, full_name)
@@ -393,97 +467,255 @@ class Client(commands.AutoShardedBot):
         for command in self.tree.get_commands():
             recursive_cache(command)
 
+    async def sync_guild_commands(self):
+        """
+        Copy globally registered commands into the configured guild,
+        then sync the guild command tree.
+
+        This makes slash commands appear immediately in the development
+        server instead of waiting for Discord's global command propagation.
+        """
+
+        guild_id = os.getenv("DEFAULT_ALLOWED_SERVERS")
+
+        if not guild_id:
+            logger.warning(
+                "[⚠️] DEFAULT_ALLOWED_SERVERS is not defined. "
+                "Skipping guild command sync."
+            )
+            return
+
+        # Support a comma-separated list of guild IDs.
+        guild_ids = [
+            int(g.strip())
+            for g in guild_id.split(",")
+            if g.strip().isdigit()
+        ]
+
+        if not guild_ids:
+            logger.warning(
+                "[⚠️] DEFAULT_ALLOWED_SERVERS contains no valid guild IDs."
+            )
+            return
+
+        for guild_id in guild_ids:
+            try:
+                guild = discord.Object(id=guild_id)
+
+                # Copy normal/global commands into this guild.
+                self.tree.copy_global_to(guild=guild)
+
+                # Sync all commands for this guild.
+                synced = await self.tree.sync(guild=guild)
+
+                logger.info(
+                    f"[✅] Synced {len(synced)} commands to guild {guild_id}"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"[❌] Failed to sync commands to guild {guild_id}: {e}"
+                )
+
     async def on_ready(self):
         if environment == "custom":
             await self._handle_custom_environment()
+
+        # Birb's promotion-specific command synchronization.
         await SyncCommands(self)
+
+        # Synchronize the rest of the command tree.
+        await self.sync_guild_commands()
+
         await self._print_startup_info()
         await self._set_custom_status()
         await self._cache_enabled_servers()
 
     async def _handle_custom_environment(self):
         if not guildid:
-            logger.error("[❌] CUSTOM_GUILD not defined in .env")
+            logger.error(
+                "[❌] CUSTOM_GUILD not defined in .env"
+            )
             sys.exit(1)
+
         guild = None
+
         try:
             guild = await self.fetch_guild(guildid)
-        except (discord.HTTPException, discord.Forbidden, discord.NotFound):
-            logger.error(f"[❌] Failed to fetch guild {guildid}")
+
+        except (
+            discord.HTTPException,
+            discord.Forbidden,
+            discord.NotFound,
+        ):
+            logger.error(
+                f"[❌] Failed to fetch guild {guildid}"
+            )
+
         if guild:
             try:
                 await guild.chunk(cache=False)
-            except (discord.NotFound, discord.HTTPException, discord.Forbidden):
-                logger.error(f"[❌] Failed to chunk guild {guild.name} ({guild.id})")
-            logger.info(f"[✅] Connected to guild {guild.name} ({guild.id})")
+
+            except (
+                discord.NotFound,
+                discord.HTTPException,
+                discord.Forbidden,
+            ):
+                logger.error(
+                    f"[❌] Failed to chunk guild {guild.name} ({guild.id})"
+                )
+
+            logger.info(
+                f"[✅] Connected to guild {guild.name} ({guild.id})"
+            )
+
             try:
                 await self.tree.sync()
-            except (discord.NotFound, discord.HTTPException, discord.Forbidden):
-                logger.error(f"[❌] Failed to sync commands")
+
+            except (
+                discord.NotFound,
+                discord.HTTPException,
+                discord.Forbidden,
+            ):
+                logger.error(
+                    "[❌] Failed to sync commands"
+                )
 
     async def _print_startup_info(self):
-        prfx = time.strftime("%H:%M:%S GMT", time.gmtime())
+        prfx = time.strftime(
+            "%H:%M:%S GMT",
+            time.gmtime()
+        )
+
         prfx = f"[📖] {prfx}"
-        logger.info(prfx + " Logged in as " + self.user.name)
-        logger.info(prfx + " Bot ID " + str(self.user.id))
-        logger.info(prfx + " Discord Version " + discord.__version__)
-        logger.info(prfx + " Python Version " + str(platform.python_version()))
-        logger.info(prfx + " Bot is in " + str(len(self.guilds)) + " servers")
+
+        logger.info(
+            prfx + " Logged in as " + self.user.name
+        )
+
+        logger.info(
+            prfx + " Bot ID " + str(self.user.id)
+        )
+
+        logger.info(
+            prfx + " Discord Version " + discord.__version__
+        )
+
+        logger.info(
+            prfx + " Python Version " + str(platform.python_version())
+        )
+
+        logger.info(
+            prfx + " Bot is in " + str(len(self.guilds)) + " servers"
+        )
+
         try:
             await db.command("ping")
-            logger.info("[✅] successfully connected to MongoDB")
+            logger.info(
+                "[✅] successfully connected to MongoDB"
+            )
+
         except Exception as e:
-            logger.error(f"[❌] Failed to connect to MongoDB: {e}")
-        T = "\n".join(f"- {task}" for task in self.Tasks)
+            logger.error(
+                f"[❌] Failed to connect to MongoDB: {e}"
+            )
+
+        T = "\n".join(
+            f"- {task}"
+            for task in self.Tasks
+        )
+
         if len(self.Tasks) > 0:
-            logger.info(f"[📝] Tasks Loaded:\n{T}")
+            logger.info(
+                f"[📝] Tasks Loaded:\n{T}"
+            )
 
     async def _set_custom_status(self):
-        activity2 = discord.CustomActivity(name=f"{STATUS}")
+        activity2 = discord.CustomActivity(
+            name=f"{STATUS}"
+        )
+
         if STATUS:
-            await self.change_presence(activity=activity2)
+            await self.change_presence(
+                activity=activity2
+            )
+
         else:
             logger.warning(
-                "[⚠️] STATUS not defined in .env, bot will not set a custom status."
+                "[⚠️] STATUS not defined in .env, "
+                "bot will not set a custom status."
             )
 
     async def _cache_enabled_servers(self):
-        prfx = time.strftime("%H:%M:%S GMT", time.gmtime())
+        prfx = time.strftime(
+            "%H:%M:%S GMT",
+            time.gmtime()
+        )
+
         prfx = f"[📖] {prfx}"
 
-        query = {"Modules.Modmail": True}
+        query = {
+            "Modules.Modmail": True
+        }
+
         if environment == "custom":
             query["_id"] = int(guildid)
 
-        Modmail = await self.db["Config"].find(query).to_list(length=None) or []
+        Modmail = await self.db["Config"].find(
+            query
+        ).to_list(length=None) or []
+
         Enabled = (
             await self.db["Config"]
-            .find({"features": {"$in": ["CACHED"]}})
+            .find(
+                {
+                    "features": {
+                        "$in": ["CACHED"]
+                    }
+                }
+            )
             .to_list(length=None)
         ) or []
 
-        Guilds = {int(server["_id"]) for server in Modmail + Enabled if "_id" in server}
-        Guilds.update([1092976553752789054])
+        Guilds = {
+            int(server["_id"])
+            for server in Modmail + Enabled
+            if "_id" in server
+        }
+
+        Guilds.update(
+            [1092976553752789054]
+        )
 
         cached = 0
+
         for ID in Guilds:
             try:
                 guild = self.get_guild(ID)
+
                 if guild:
                     await guild.chunk()
                     cached += 1
+
             except:
                 continue
 
-        logger.info(prfx + f" Successfully cached {cached} servers.")
+        logger.info(
+            prfx
+            + f" Successfully cached {cached} servers."
+        )
 
         del Modmail, Enabled, ID
 
     async def on_disconnect(self):
-        logger.warning("[⚠️] Disconnected from Discord Gateway!")
+        logger.warning(
+            "[⚠️] Disconnected from Discord Gateway!"
+        )
 
     async def on_resumed(self):
-        logger.info("[✅] Resumed connection to Discord Gateway!")
+        logger.info(
+            "[✅] Resumed connection to Discord Gateway!"
+        )
 
     async def is_owner(self, user: discord.User):
         if (
@@ -492,16 +724,23 @@ class Client(commands.AutoShardedBot):
             else os.getenv("OWNER").split(",")
         ):
             return True
+
         return await super().is_owner(user)
 
     async def on_shard_ready(self, shard_id):
-        logger.info(f"[✅] Shard {shard_id} is ready.")
+        logger.info(
+            f"[✅] Shard {shard_id} is ready."
+        )
 
     async def on_shard_connect(self, shard_id):
-        logger.info(f"[✅] Shard {shard_id} connected.")
+        logger.info(
+            f"[✅] Shard {shard_id} connected."
+        )
 
     async def on_shard_disconnect(self, shard_id):
-        logger.warning(f"[⚠️] Shard {shard_id} disconnected.")
+        logger.warning(
+            f"[⚠️] Shard {shard_id} disconnected."
+        )
 
 
 client = Client()
