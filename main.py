@@ -521,14 +521,26 @@ class Client(commands.AutoShardedBot):
         if environment == "custom":
             await self._handle_custom_environment()
 
+        # Set the custom status immediately after the bot is ready.
+        # This is intentionally before command synchronization so a
+        # slow/hanging command sync cannot prevent the status from loading.
+        await self._set_custom_status()
+
+        # Print startup information.
+        await self._print_startup_info()
+
         # Birb's promotion-specific command synchronization.
-        await SyncCommands(self)
+        try:
+            await SyncCommands(self)
+        except Exception as e:
+            logger.error(f"[❌] Promotion command sync failed: {e}")
 
         # Synchronize the rest of the command tree.
-        await self.sync_guild_commands()
+        try:
+            await self.sync_guild_commands()
+        except Exception as e:
+            logger.error(f"[❌] Guild command sync failed: {e}")
 
-        await self._print_startup_info()
-        await self._set_custom_status()
         await self._cache_enabled_servers()
 
     async def _handle_custom_environment(self):
@@ -631,20 +643,19 @@ class Client(commands.AutoShardedBot):
             )
 
     async def _set_custom_status(self):
-        activity2 = discord.CustomActivity(
-            name=f"{STATUS}"
-        )
-
-        if STATUS:
-            await self.change_presence(
-                activity=activity2
-            )
-
-        else:
+        if not STATUS:
             logger.warning(
                 "[⚠️] STATUS not defined in .env, "
                 "bot will not set a custom status."
             )
+            return
+
+        try:
+            activity = discord.CustomActivity(name=STATUS)
+            await self.change_presence(activity=activity)
+            logger.info(f"[✅] Custom status set to: {STATUS}")
+        except Exception as e:
+            logger.error(f"[❌] Failed to set custom status: {e}")
 
     async def _cache_enabled_servers(self):
         prfx = time.strftime(
